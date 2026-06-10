@@ -6,6 +6,7 @@ import type {
   PdfData,
   ShapeData,
   TableData,
+  TapeData,
   TextData,
 } from "@/types/study";
 import { nowIso } from "@/lib/utils/date";
@@ -57,6 +58,13 @@ export function createCommentElement(pageId: string, x: number, y: number): Page
     text: "",
     resolved: false,
   } satisfies CommentData);
+}
+
+export function createTapeElement(pageId: string, x: number, y: number, color = "#f2d66b"): PageElement {
+  return baseElement(pageId, "tape", x, y, 260, 72, {
+    color,
+    revealed: false,
+  } satisfies TapeData);
 }
 
 export function createImageElement(pageId: string, data: ImageData): PageElement {

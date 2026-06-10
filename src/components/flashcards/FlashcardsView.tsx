@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
-import { Check, Download, Pencil, RotateCcw, Trash2, X } from "lucide-react";
+import { Check, Download, Pencil, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -16,8 +16,10 @@ export function FlashcardsView() {
   const { folders, notebooks, flashcards, refresh } = useStudyData();
   const [folderFilter, setFolderFilter] = useState("");
   const [notebookFilter, setNotebookFilter] = useState("");
-  const [flipped, setFlipped] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<StudyCard | null>(null);
+  const [sessionIndex, setSessionIndex] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const [sessionStats, setSessionStats] = useState({ known: 0, unsure: 0, unknown: 0 });
 
   const filtered = useMemo(
     () =>
@@ -29,13 +31,30 @@ export function FlashcardsView() {
     [flashcards, folderFilter, notebookFilter],
   );
 
-  async function mark(card: StudyCard, known: boolean) {
+  const currentCard = filtered[sessionIndex] ?? filtered[0];
+  const progress = filtered.length > 0 ? ((sessionIndex + 1) / filtered.length) * 100 : 0;
+  const finished = filtered.length > 0 && sessionIndex >= filtered.length;
+
+  async function mark(card: StudyCard, result: "known" | "unsure" | "unknown") {
     await updateFlashcard(card.id, {
-      knownCount: card.knownCount + (known ? 1 : 0),
-      unknownCount: card.unknownCount + (known ? 0 : 1),
+      knownCount: card.knownCount + (result === "known" ? 1 : 0),
+      unknownCount: card.unknownCount + (result === "unknown" ? 1 : 0),
       lastReviewedAt: nowIso(),
     });
+    setSessionStats((current) => ({
+      known: current.known + (result === "known" ? 1 : 0),
+      unsure: current.unsure + (result === "unsure" ? 1 : 0),
+      unknown: current.unknown + (result === "unknown" ? 1 : 0),
+    }));
+    setFlipped(false);
+    setSessionIndex((current) => current + 1);
     await refresh();
+  }
+
+  function restartSession() {
+    setSessionIndex(0);
+    setFlipped(false);
+    setSessionStats({ known: 0, unsure: 0, unknown: 0 });
   }
 
   function exportCsv() {
@@ -49,58 +68,62 @@ export function FlashcardsView() {
     <div>
       <PageHeader
         title="Karteikarten"
-        subtitle="Wiederhole erzeugte Karten und markiere, was sicher sitzt."
+        subtitle="Aktives Lernen mit Kartenstapel, Flip und Fortschritt."
         actions={filtered.length > 0 ? <Button variant="secondary" onClick={exportCsv}><Download size={16} /> CSV</Button> : null}
       />
       <div className="px-5 py-6 lg:px-8">
         <div className="mb-5 flex flex-wrap gap-3">
-          <Filter label="Ordner" value={folderFilter} onChange={setFolderFilter} options={folders.map((folder) => [folder.id, folder.name])} />
-          <Filter label="Notizbuch" value={notebookFilter} onChange={setNotebookFilter} options={notebooks.map((notebook) => [notebook.id, notebook.title])} />
+          <Filter label="Ordner" value={folderFilter} onChange={(value) => { setFolderFilter(value); restartSession(); }} options={folders.map((folder) => [folder.id, folder.name])} />
+          <Filter label="Notizbuch" value={notebookFilter} onChange={(value) => { setNotebookFilter(value); restartSession(); }} options={notebooks.map((notebook) => [notebook.id, notebook.title])} />
         </div>
         {filtered.length === 0 ? (
           <EmptyState title="Noch keine Karteikarten." description="Erstelle Karteikarten aus deinen Notizen." />
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {filtered.map((card) => {
-              const isFlipped = flipped.has(card.id);
-              return (
-                <article key={card.id} className="rounded-lg border border-[#dfe6df] bg-white p-5">
-                  <button
-                    className="min-h-44 w-full text-left"
-                    onClick={() =>
-                      setFlipped((current) => {
-                        const next = new Set(current);
-                        if (next.has(card.id)) next.delete(card.id);
-                        else next.add(card.id);
-                        return next;
-                      })
-                    }
-                  >
-                    <p className="text-xs font-medium uppercase tracking-wide text-[#667085]">{isFlipped ? "Rückseite" : "Vorderseite"}</p>
-                    <p className="mt-3 text-lg font-semibold leading-7">{isFlipped ? card.back : card.front}</p>
-                  </button>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <Button variant="secondary" onClick={() => mark(card, true)}><Check size={16} /> Gewusst</Button>
-                    <Button variant="secondary" onClick={() => mark(card, false)}><X size={16} /> Nicht gewusst</Button>
-                    <Button variant="ghost" className="h-10 w-10 p-0" onClick={() => setEditing(card)} aria-label="Bearbeiten"><Pencil size={16} /></Button>
-                    <Button
-                      variant="ghost"
-                      className="h-10 w-10 p-0 text-[#b54747]"
-                      onClick={async () => {
-                        await deleteFlashcard(card.id);
-                        await refresh();
-                      }}
-                      aria-label="Löschen"
-                    >
-                      <Trash2 size={16} />
-                    </Button>
-                  </div>
-                  <p className="mt-3 text-xs text-[#667085]">{card.knownCount} gewusst · {card.unknownCount} offen</p>
-                </article>
-              );
-            })}
-          </div>
-        )}
+        ) : finished ? (
+          <section className="mx-auto max-w-2xl rounded-lg border border-[#dfe6df] bg-white p-6 text-center shadow-sm">
+            <Sparkles className="mx-auto text-[#2f6f73]" size={32} />
+            <h2 className="mt-4 text-2xl font-semibold">Lernsession abgeschlossen</h2>
+            <div className="mt-5 grid grid-cols-3 gap-3 text-sm">
+              <ResultStat label="Gewusst" value={sessionStats.known} tone="green" />
+              <ResultStat label="Unsicher" value={sessionStats.unsure} tone="yellow" />
+              <ResultStat label="Offen" value={sessionStats.unknown} tone="red" />
+            </div>
+            <Button className="mt-6" onClick={restartSession}>Erneut lernen</Button>
+          </section>
+        ) : currentCard ? (
+          <section className="mx-auto max-w-3xl">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-[#667085]">Karte {sessionIndex + 1} von {filtered.length}</span>
+              <span className="rounded-full bg-[#e8f3f1] px-3 py-1 text-xs font-medium text-[#2f6f73]">{currentCard.difficulty ?? "medium"}</span>
+            </div>
+            <div className="mb-5 h-2 overflow-hidden rounded-full bg-[#e5e9e4]">
+              <div className="h-full rounded-full bg-[#2f6f73] transition-all" style={{ width: `${progress}%` }} />
+            </div>
+            <button className="group block w-full [perspective:1200px]" onClick={() => setFlipped((current) => !current)}>
+              <div className={`relative min-h-[340px] rounded-xl transition-transform duration-500 [transform-style:preserve-3d] ${flipped ? "[transform:rotateY(180deg)]" : ""}`}>
+                <CardFace label="Vorderseite" text={currentCard.front} />
+                <CardFace label="Rückseite" text={currentCard.back} back />
+              </div>
+            </button>
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
+              <Button variant="secondary" onClick={() => mark(currentCard, "known")}><Check size={16} /> Gewusst</Button>
+              <Button variant="secondary" onClick={() => mark(currentCard, "unsure")}><RotateCcw size={16} /> Unsicher</Button>
+              <Button variant="secondary" onClick={() => mark(currentCard, "unknown")}><X size={16} /> Nicht gewusst</Button>
+              <Button variant="ghost" className="h-10 w-10 p-0" onClick={() => setEditing(currentCard)} aria-label="Bearbeiten"><Pencil size={16} /></Button>
+              <Button
+                variant="ghost"
+                className="h-10 w-10 p-0 text-[#b54747]"
+                onClick={async () => {
+                  await deleteFlashcard(currentCard.id);
+                  await refresh();
+                  restartSession();
+                }}
+                aria-label="Löschen"
+              >
+                <Trash2 size={16} />
+              </Button>
+            </div>
+          </section>
+        ) : null}
       </div>
       {editing ? (
         <EditCardModal
@@ -112,6 +135,30 @@ export function FlashcardsView() {
           }}
         />
       ) : null}
+    </div>
+  );
+}
+
+function CardFace({ label, text, back }: { label: string; text: string; back?: boolean }) {
+  return (
+    <div className={`absolute inset-0 flex flex-col justify-between rounded-xl border border-[#dfe6df] bg-white p-8 text-left shadow-xl [backface-visibility:hidden] ${back ? "[transform:rotateY(180deg)] bg-[#f8fbfa]" : ""}`}>
+      <p className="text-xs font-semibold uppercase tracking-wide text-[#667085]">{label}</p>
+      <p className="text-2xl font-semibold leading-9 text-[#18202f]">{text}</p>
+      <p className="text-sm text-[#667085]">Tippe auf die Karte zum Drehen.</p>
+    </div>
+  );
+}
+
+function ResultStat({ label, value, tone }: { label: string; value: number; tone: "green" | "yellow" | "red" }) {
+  const colors = {
+    green: "bg-[#e8f3f1] text-[#2f6f73]",
+    yellow: "bg-[#fff8d8] text-[#7a5b12]",
+    red: "bg-[#fff1f1] text-[#b54747]",
+  };
+  return (
+    <div className={`rounded-lg p-4 ${colors[tone]}`}>
+      <p className="text-2xl font-semibold">{value}</p>
+      <p>{label}</p>
     </div>
   );
 }

@@ -35,12 +35,13 @@ export async function deleteFolderCascade(id: string): Promise<void> {
 
   await db.transaction(
     "rw",
-    [db.folders, db.notebooks, db.pages, db.pageElements, db.flashcards, db.quizQuestions],
+    [db.folders, db.notebooks, db.pages, db.pageElements, db.comments, db.flashcards, db.quizQuestions],
     async () => {
       await db.folders.delete(id);
       await db.notebooks.where("folderId").equals(id).delete();
       if (notebookIds.length > 0) await db.pages.where("notebookId").anyOf(notebookIds).delete();
       if (pageIds.length > 0) await db.pageElements.where("pageId").anyOf(pageIds).delete();
+      if (pageIds.length > 0) await db.comments.where("pageId").anyOf(pageIds).delete();
       await db.flashcards.where("folderId").equals(id).delete();
       await db.quizQuestions.where("folderId").equals(id).delete();
     },

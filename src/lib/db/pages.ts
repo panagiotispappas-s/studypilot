@@ -37,9 +37,10 @@ export async function updatePage(id: string, patch: Partial<NotePage>): Promise<
 export async function deletePage(id: string): Promise<void> {
   const page = await db.pages.get(id);
   if (!page) return;
-  await db.transaction("rw", db.pages, db.pageElements, async () => {
+  await db.transaction("rw", [db.pages, db.pageElements, db.comments], async () => {
     await db.pages.delete(id);
     await db.pageElements.where("pageId").equals(id).delete();
+    await db.comments.where("pageId").equals(id).delete();
     const remaining = await db.pages.where("notebookId").equals(page.notebookId).sortBy("pageNumber");
     await Promise.all(
       remaining.map((remainingPage, index) =>

@@ -21,8 +21,9 @@ export async function generateStudyContent(
   const extracted = await extractTextFromScope(scope);
   const sentences = splitSentences(extracted.text);
   const keywords = extractKeywords(extracted.text);
+  const formulas = extractFormulaLikeParts(extracted.text);
   const timestamp = nowIso();
-  const result = buildResult(action, scope, extracted.text, sentences, keywords, timestamp);
+  const result = buildResult(action, scope, extracted.text, sentences, keywords, formulas, timestamp);
   const generation: StudyGeneration = {
     id: createId("generation"),
     type: action,
@@ -50,9 +51,11 @@ function buildResult(
   text: string,
   sentences: string[],
   keywords: string[],
+  formulas: string[],
   timestamp: string,
 ): StudyGenerationResult {
   const fallback = "Es wurden noch keine auswertbaren Inhalte gefunden.";
+  const tooShort = "Der ausgewählte Bereich enthält noch zu wenig Text. Füge mehr Inhalte hinzu oder wähle einen größeren Bereich.";
   const sourceLabel = describeScope(scope);
   if (!text.trim()) {
     if (action === "summary") {
@@ -80,15 +83,32 @@ function buildResult(
     }
     return [fallback];
   }
+  if (text.trim().length < 80 && action !== "terms") {
+    if (action === "summary") {
+      return {
+        title: "Lernzettel",
+        sourceLabel,
+        summary: tooShort,
+        keyPoints: sentences,
+        definitions: keywords.map((keyword) => `${capitalize(keyword)}: Begriff aus dem ausgewählten Inhalt.`),
+        examples: [],
+        examQuestions: [],
+      } satisfies StudySummaryResult;
+    }
+    return [tooShort];
+  }
 
   if (action === "summary") {
     return {
       title: keywords[0] ? `Lernzettel: ${capitalize(keywords[0])}` : "Lernzettel",
       sourceLabel,
       summary: sentences.slice(0, 3).join(" "),
-      keyPoints: sentences.slice(0, 6),
-      definitions: keywords.slice(0, 6).map((keyword) => `${capitalize(keyword)}: zentraler Begriff aus deinen Notizen.`),
-      examples: sentences.slice(3, 6),
+      keyPoints: [
+        ...sentences.slice(0, 5),
+        ...formulas.slice(0, 2).map((formula) => `Merke dir die Formel oder Zahl: ${formula}`),
+      ],
+      definitions: keywords.slice(0, 6).map((keyword) => `${capitalize(keyword)}: zentraler Begriff, den du erklären und anwenden können solltest.`),
+      examples: sentences.filter((sentence) => /zum beispiel|beispiel|etwa|wenn/i.test(sentence)).slice(0, 4),
       examQuestions: keywords.slice(0, 5).map((keyword) => `Erkläre ${keyword} mit eigenen Worten.`),
     } satisfies StudySummaryResult;
   }
@@ -100,7 +120,7 @@ function buildResult(
       notebookId: scope.notebookId,
       pageId: scope.pageId,
       front: `Was bedeutet ${keyword}?`,
-      back: findSentenceForKeyword(sentences, keyword) ?? `${capitalize(keyword)} ist ein wichtiger Begriff aus deinen Notizen.`,
+      back: findSentenceForKeyword(sentences, keyword) ?? `${capitalize(keyword)} ist ein wichtiger Begriff aus deinen Notizen. Formuliere dazu eine eigene Erklärung und ein kurzes Beispiel.`,
       sourceText: text.slice(0, 280),
       difficulty: index < 3 ? "easy" : index < 7 ? "medium" : "hard",
       createdAt: timestamp,
@@ -112,11 +132,11 @@ function buildResult(
 
   if (action === "quiz") {
     return keywords.slice(0, 8).map((keyword, index) => {
-      const correctAnswer = findSentenceForKeyword(sentences, keyword) ?? `${capitalize(keyword)} kommt in deinen Notizen vor.`;
+      const correctAnswer = findSentenceForKeyword(sentences, keyword) ?? `${capitalize(keyword)} kommt in deinen Notizen vor und sollte fachlich erklärt werden können.`;
       const distractors = keywords
         .filter((candidate) => candidate !== keyword)
         .slice(0, 3)
-        .map((candidate) => `${capitalize(candidate)} beschreibt einen anderen Schwerpunkt.`);
+        .map((candidate) => `${capitalize(candidate)} gehört zu einem anderen Schwerpunkt deiner Notizen.`);
       return {
         id: createId("quiz"),
         folderId: scope.folderId,
@@ -125,7 +145,7 @@ function buildResult(
         question: `Welche Aussage passt am besten zu ${keyword}?`,
         options: shuffle([correctAnswer, ...distractors]).slice(0, 4),
         correctAnswer,
-        explanation: `Die Antwort wurde aus deinen getippten Notizen zu ${keyword} abgeleitet.`,
+        explanation: `Die richtige Antwort greift den Satz oder Zusammenhang auf, in dem ${keyword} in deinen Notizen vorkommt.`,
         difficulty: index < 3 ? "easy" : index < 6 ? "medium" : "hard",
         createdAt: timestamp,
       } satisfies QuizQuestion;
@@ -142,9 +162,12 @@ function buildResult(
         "Tag 3: Karteikarten abfragen und Quiz bearbeiten.",
         "Tag 4: typische Prüfungsfragen schriftlich beantworten.",
       ],
-      importantDefinitions: keywords.slice(0, 6).map((keyword) => `${capitalize(keyword)}: prüfungsrelevanter Begriff aus deinen Notizen.`),
+      importantDefinitions: keywords.slice(0, 6).map((keyword) => `${capitalize(keyword)}: prüfungsrelevanter Begriff, der mit Definition, Beispiel und Anwendung sitzen sollte.`),
       typicalQuestions: keywords.slice(0, 6).map((keyword) => `Wie würdest du ${keyword} in einer Prüfung erklären?`),
-      modelAnswers: sentences.slice(0, 4),
+      modelAnswers: [
+        ...sentences.slice(0, 4),
+        ...formulas.slice(0, 2).map((formula) => `Bei ${formula} solltest du Bedeutung, Einheiten und Anwendung benennen.`),
+      ],
       weakSpots: keywords.length < 4 ? ["Der Text enthält noch wenige klare Schlüsselbegriffe."] : [],
       repetitionRecommendation: "Wiederhole zuerst die Begriffe, beantworte danach die typischen Fragen schriftlich und prüfe anschließend die Karteikarten.",
     } satisfies ExamPrepResult;
@@ -206,6 +229,13 @@ function extractKeywords(text: string): string[] {
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], "de"))
     .map(([word]) => word)
     .slice(0, 20);
+}
+
+function extractFormulaLikeParts(text: string): string[] {
+  return normalizeText(text)
+    .split(/\s+/)
+    .filter((part) => /[=<>+\-*/%]|\d/.test(part) && part.length > 1)
+    .slice(0, 8);
 }
 
 function findSentenceForKeyword(sentences: string[], keyword: string): string | undefined {

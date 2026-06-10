@@ -25,7 +25,8 @@ export async function extractTextFromScope(scope: SourceScope): Promise<Extracte
   const pages = await resolvePages(scope);
   const pageIds = pages.map((page) => page.id);
   const elements = pageIds.length > 0 ? await db.pageElements.where("pageId").anyOf(pageIds).toArray() : [];
-  const chunks = elements.flatMap(elementToText).map(normalizeText).filter(Boolean);
+  const comments = pageIds.length > 0 ? await db.comments.where("pageId").anyOf(pageIds).toArray() : [];
+  const chunks = [...elements.flatMap(elementToText), ...comments.map((comment) => comment.text)].map(normalizeText).filter(Boolean);
   return {
     text: chunks.join("\n"),
     sourceIds: resolveSourceIds(scope, pageIds),

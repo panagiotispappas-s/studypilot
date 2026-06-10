@@ -54,6 +54,9 @@ export interface NotePage extends Timestamped {
   pageNumber: number;
   backgroundType: PageBackgroundType;
   backgroundPdf?: PdfData;
+  templateId?: string;
+  paperFormat?: "A4" | "A5" | "Letter" | "iPad";
+  orientation?: "portrait" | "landscape";
 }
 
 export type PageElementType =
@@ -64,7 +67,8 @@ export type PageElementType =
   | "table"
   | "image"
   | "pdf"
-  | "comment";
+  | "comment"
+  | "tape";
 
 export interface Point {
   x: number;
@@ -101,6 +105,11 @@ export interface CommentData {
   resolved: boolean;
 }
 
+export interface TapeData {
+  color: string;
+  revealed: boolean;
+}
+
 export interface TextData {
   text: string;
   fontSize: number;
@@ -126,7 +135,8 @@ export type PageElementData =
   | CommentData
   | TextData
   | ImageData
-  | PdfData;
+  | PdfData
+  | TapeData;
 
 export interface PageElement extends Timestamped {
   id: ID;
@@ -273,4 +283,15 @@ export interface ImportedPdf extends Timestamped {
   pageCount: number;
   size: number;
   mimeType: string;
+}
+
+export interface StudyComment extends Timestamped {
+  id: ID;
+  userId?: ID;
+  pageId: ID;
+  elementId?: ID;
+  text: string;
+  resolved: boolean;
+  x?: number;
+  y?: number;
 }

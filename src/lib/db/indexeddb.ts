@@ -7,6 +7,7 @@ import type {
   QuizQuestion,
   StudyAccount,
   StudyCard,
+  StudyComment,
   StudyFolder,
   StudyGeneration,
   StudyAuthSession,
@@ -18,6 +19,7 @@ export class StudyPilotDatabase extends Dexie {
   notebooks!: Table<Notebook, string>;
   pages!: Table<NotePage, string>;
   pageElements!: Table<PageElement, string>;
+  comments!: Table<StudyComment, string>;
   importedPdfs!: Table<ImportedPdf, string>;
   flashcards!: Table<StudyCard, string>;
   quizQuestions!: Table<QuizQuestion, string>;
@@ -42,6 +44,20 @@ export class StudyPilotDatabase extends Dexie {
       notebooks: "id, userId, folderId, title, favorite, lastOpenedAt, updatedAt",
       pages: "id, userId, notebookId, pageNumber, updatedAt",
       pageElements: "id, userId, pageId, type, zIndex, updatedAt",
+      importedPdfs: "id, userId, pageId, notebookId, name, updatedAt",
+      flashcards: "id, userId, folderId, notebookId, pageId, updatedAt",
+      quizQuestions: "id, userId, folderId, notebookId, pageId, createdAt",
+      generations: "id, userId, type, createdAt",
+      profiles: "id, userId, email, updatedAt",
+      accounts: "id, email, profileId, updatedAt",
+      authSessions: "id, userId, profileId, createdAt",
+    });
+    this.version(3).stores({
+      folders: "id, userId, name, updatedAt",
+      notebooks: "id, userId, folderId, title, favorite, lastOpenedAt, updatedAt",
+      pages: "id, userId, notebookId, pageNumber, updatedAt",
+      pageElements: "id, userId, pageId, type, zIndex, updatedAt",
+      comments: "id, userId, pageId, elementId, updatedAt",
       importedPdfs: "id, userId, pageId, notebookId, name, updatedAt",
       flashcards: "id, userId, folderId, notebookId, pageId, updatedAt",
       quizQuestions: "id, userId, folderId, notebookId, pageId, createdAt",

@@ -37,10 +37,11 @@ export async function touchNotebook(id: string): Promise<void> {
 export async function deleteNotebookCascade(id: string): Promise<void> {
   const pages = await db.pages.where("notebookId").equals(id).toArray();
   const pageIds = pages.map((page) => page.id);
-  await db.transaction("rw", [db.notebooks, db.pages, db.pageElements, db.flashcards, db.quizQuestions], async () => {
+  await db.transaction("rw", [db.notebooks, db.pages, db.pageElements, db.comments, db.flashcards, db.quizQuestions], async () => {
     await db.notebooks.delete(id);
     await db.pages.where("notebookId").equals(id).delete();
     if (pageIds.length > 0) await db.pageElements.where("pageId").anyOf(pageIds).delete();
+    if (pageIds.length > 0) await db.comments.where("pageId").anyOf(pageIds).delete();
     await db.flashcards.where("notebookId").equals(id).delete();
     await db.quizQuestions.where("notebookId").equals(id).delete();
   });
