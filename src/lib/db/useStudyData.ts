@@ -10,6 +10,8 @@ import type {
   QuizQuestion,
   SearchResult,
   StudyCard,
+  StudyComment,
+  StudyGeneration,
   StudyFolder,
   TextData,
   TableData,
@@ -22,6 +24,7 @@ export interface StudyDataState {
   pages: PageWithElements[];
   flashcards: StudyCard[];
   quizQuestions: QuizQuestion[];
+  generations: StudyGeneration[];
   loading: boolean;
   refresh: () => Promise<void>;
   search: (query: string) => SearchResult[];
@@ -33,11 +36,13 @@ export function useStudyData(notebookId?: string): StudyDataState {
   const [pages, setPages] = useState<PageWithElements[]>([]);
   const [flashcards, setFlashcards] = useState<StudyCard[]>([]);
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
+  const [generations, setGenerations] = useState<StudyGeneration[]>([]);
+  const [comments, setComments] = useState<StudyComment[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [nextFolders, nextNotebooks, nextPagesRaw, nextElements, nextCards, nextQuiz] = await Promise.all([
+    const [nextFolders, nextNotebooks, nextPagesRaw, nextElements, nextCards, nextQuiz, nextGenerations, nextComments] = await Promise.all([
       db.folders.orderBy("updatedAt").reverse().toArray(),
       db.notebooks.orderBy("updatedAt").reverse().toArray(),
       notebookId
@@ -46,6 +51,8 @@ export function useStudyData(notebookId?: string): StudyDataState {
       db.pageElements.toArray(),
       db.flashcards.orderBy("updatedAt").reverse().toArray(),
       db.quizQuestions.orderBy("createdAt").reverse().toArray(),
+      db.generations.orderBy("createdAt").reverse().toArray(),
+      db.comments.orderBy("updatedAt").reverse().toArray(),
     ]);
 
     setFolders(nextFolders);
@@ -60,6 +67,8 @@ export function useStudyData(notebookId?: string): StudyDataState {
     );
     setFlashcards(nextCards);
     setQuizQuestions(nextQuiz);
+    setGenerations(nextGenerations);
+    setComments(nextComments);
     setLoading(false);
   }, [notebookId]);
 
@@ -95,7 +104,11 @@ export function useStudyData(notebookId?: string): StudyDataState {
         }));
 
       const pageResults = searchablePages
-        .filter((page) => page.elements.some((element) => elementText(element).toLowerCase().includes(needle)))
+        .filter((page) => {
+          const elementMatch = page.elements.some((element) => elementText(element).toLowerCase().includes(needle));
+          const commentMatch = comments.some((comment) => comment.pageId === page.id && comment.text.toLowerCase().includes(needle));
+          return elementMatch || commentMatch;
+        })
         .map((page) => ({
           id: page.id,
           type: "page" as const,
@@ -126,10 +139,10 @@ export function useStudyData(notebookId?: string): StudyDataState {
 
       return [...folderResults, ...notebookResults, ...pageResults, ...cardResults, ...quizResults].slice(0, 12);
     },
-    [flashcards, folders, notebooks, quizQuestions, searchablePages],
+    [comments, flashcards, folders, notebooks, quizQuestions, searchablePages],
   );
 
-  return { folders, notebooks, pages, flashcards, quizQuestions, loading, refresh, search };
+  return { folders, notebooks, pages, flashcards, quizQuestions, generations, loading, refresh, search };
 }
 
 function elementText(element: PageElement): string {

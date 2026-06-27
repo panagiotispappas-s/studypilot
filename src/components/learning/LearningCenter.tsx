@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Brain, Download, Sparkles } from "lucide-react";
+import { Brain, ClipboardList, Download, Layers3, Lightbulb, MessageCircleQuestion, Sparkles, WandSparkles } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -20,19 +20,21 @@ import type {
   StudySummaryResult,
 } from "@/types/study";
 
-const actions: Array<{ id: StudyAction; label: string }> = [
-  { id: "summary", label: "Lernzettel erstellen" },
-  { id: "flashcards", label: "Karteikarten erstellen" },
-  { id: "quiz", label: "Quizfragen erstellen" },
-  { id: "examPrep", label: "Prüfungsvorbereitung erstellen" },
-  { id: "explanation", label: "Inhalt einfacher erklären" },
-  { id: "terms", label: "wichtige Begriffe extrahieren" },
-  { id: "questions", label: "offene Fragen erzeugen" },
+const actions: Array<{ id: StudyAction; label: string; description: string }> = [
+  { id: "summary", label: "Lernzettel", description: "Strukturierte Zusammenfassung mit Prüfungsfragen." },
+  { id: "flashcards", label: "Karteikarten", description: "Aktive Wiederholung aus Schlüsselbegriffen." },
+  { id: "quiz", label: "Quizfragen", description: "Multiple Choice mit Erklärung und Schwierigkeit." },
+  { id: "examPrep", label: "Prüfungsvorbereitung", description: "Plan, Themen, Musterantworten und Schwächen." },
+  { id: "explanation", label: "Einfach erklären", description: "Komplexe Notizen in klare Sprache übersetzen." },
+  { id: "terms", label: "Begriffe", description: "Wichtige Fachbegriffe extrahieren." },
+  { id: "questions", label: "Offene Fragen", description: "Fragen zum Selbsterklären erzeugen." },
+  { id: "examples", label: "Beispielaufgaben", description: "Anwendungsfragen und Übungsfälle erstellen." },
+  { id: "mnemonics", label: "Eselsbrücken", description: "Merkhilfen für schwierige Begriffe bauen." },
 ];
 
 export function LearningCenter() {
   const searchParams = useSearchParams();
-  const { folders, notebooks, pages, refresh } = useStudyData();
+  const { folders, notebooks, pages, generations, refresh } = useStudyData();
   const [scopeType, setScopeType] = useState<SourceScopeType>((searchParams.get("scope") as SourceScopeType) || "notebook");
   const [folderId, setFolderId] = useState(searchParams.get("folderId") ?? folders[0]?.id ?? "");
   const [notebookId, setNotebookId] = useState(searchParams.get("notebookId") ?? notebooks[0]?.id ?? "");
@@ -45,6 +47,23 @@ export function LearningCenter() {
   const [notice, setNotice] = useState("");
 
   const notebookPages = useMemo(() => pages.filter((page) => page.notebookId === notebookId), [notebookId, pages]);
+  const sourceStats = useMemo(() => {
+    const scopedPages = scopeType === "folder"
+      ? pages.filter((page) => notebooks.some((notebook) => notebook.folderId === folderId && notebook.id === page.notebookId))
+      : scopeType === "notebook"
+        ? pages.filter((page) => page.notebookId === notebookId)
+        : scopeType === "pageRange"
+          ? notebookPages.filter((page) => page.pageNumber >= fromPage && page.pageNumber <= toPage)
+          : scopeType === "page"
+            ? pages.filter((page) => page.id === pageId)
+            : [];
+    const elements = scopedPages.flatMap((page) => page.elements);
+    return {
+      pages: scopedPages.length,
+      textElements: elements.filter((element) => element.type === "text" || element.type === "table").length,
+      drawings: elements.filter((element) => element.type === "drawing" || element.type === "highlight").length,
+    };
+  }, [folderId, fromPage, notebookId, notebookPages, notebooks, pageId, pages, scopeType, toPage]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -128,13 +147,30 @@ export function LearningCenter() {
                 <NumberInput label="Bis Seite" value={toPage} onChange={setToPage} max={Math.max(1, notebookPages.length)} />
               </div>
             ) : null}
-            <Select label="Aktion" value={action} onChange={(value) => setAction(value as StudyAction)} options={actions.map((item) => [item.id, item.label])} />
+            <div>
+              <p className="text-sm font-medium">Aktion</p>
+              <div className="mt-2 grid gap-2">
+                {actions.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setAction(item.id)}
+                    className={`rounded-lg border p-3 text-left transition ${action === item.id ? "border-[#2f6f73] bg-[#e8f3f1]" : "border-[#dfe6df] bg-white hover:border-[#aac7c1]"}`}
+                  >
+                    <span className="block text-sm font-semibold">{item.label}</span>
+                    <span className="mt-1 block text-xs leading-5 text-[#667085]">{item.description}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <SourceSignal stats={sourceStats} />
             <Button className="w-full" onClick={runGeneration} disabled={busy || notebooks.length === 0}>
               <Sparkles size={17} />
               {busy ? "Erstelle..." : "Lernmaterial erstellen"}
             </Button>
             {notice ? <p className="rounded-md bg-[#fff8d8] px-3 py-2 text-sm text-[#7a5b12]">{notice}</p> : null}
           </div>
+          <RecentGenerations generations={generations.slice(0, 5)} />
         </section>
 
         <section className="rounded-lg border border-[#dfe6df] bg-white p-5">
@@ -156,9 +192,79 @@ export function LearningCenter() {
               description="Wähle einen Ordner, ein Notizbuch oder einen Seitenbereich aus, um Lernmaterial zu erstellen."
             />
           ) : (
-            <GenerationResult generation={generation} />
+            <div className="space-y-4">
+              <GenerationHero generation={generation} />
+              <GenerationResult generation={generation} />
+            </div>
           )}
         </section>
+      </div>
+    </div>
+  );
+}
+
+function SourceSignal({ stats }: { stats: { pages: number; textElements: number; drawings: number } }) {
+  const ready = stats.textElements > 0;
+  return (
+    <div className={`rounded-lg border p-3 ${ready ? "border-[#d8e9e4] bg-[#f5fbf8]" : "border-[#f4dfb8] bg-[#fffaf0]"}`}>
+      <div className="flex items-start gap-3">
+        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${ready ? "bg-[#e8f3f1] text-[#2f6f73]" : "bg-[#fff0c2] text-[#7a5b12]"}`}>
+          <Layers3 size={17} />
+        </span>
+        <div>
+          <p className="text-sm font-semibold">{ready ? "Quelle ist auswertbar" : "Quelle braucht mehr Text"}</p>
+          <p className="mt-1 text-xs leading-5 text-[#667085]">
+            {stats.pages} Seiten · {stats.textElements} Textbereiche · {stats.drawings} Zeichnungen. Handschrift wird ohne OCR nicht als Text ausgewertet.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecentGenerations({ generations }: { generations: StudyGeneration[] }) {
+  if (generations.length === 0) return null;
+  return (
+    <div className="mt-6 border-t border-[#edf1ec] pt-4">
+      <h3 className="text-sm font-semibold">Zuletzt erstellt</h3>
+      <div className="mt-3 space-y-2">
+        {generations.map((generation) => (
+          <article key={generation.id} className="rounded-md border border-[#edf1ec] bg-[#fbfcfa] px-3 py-2">
+            <p className="text-sm font-medium">{actionTitle(generation.type)}</p>
+            <p className="mt-1 text-xs text-[#667085]">{new Date(generation.createdAt).toLocaleString("de-DE")}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GenerationHero({ generation }: { generation: StudyGeneration }) {
+  const icons = {
+    summary: ClipboardList,
+    flashcards: Layers3,
+    quiz: MessageCircleQuestion,
+    examPrep: Brain,
+    explanation: Lightbulb,
+    terms: Sparkles,
+    questions: MessageCircleQuestion,
+    examples: WandSparkles,
+    mnemonics: Lightbulb,
+  };
+  const Icon = icons[generation.type];
+  return (
+    <div className="rounded-xl border border-[#d8e9e4] bg-gradient-to-br from-[#f5fbf8] to-white p-5">
+      <div className="flex items-start gap-4">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-[#2f6f73] text-white shadow-sm">
+          <Icon size={22} />
+        </span>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#2f6f73]">Lernmaterial bereit</p>
+          <h3 className="mt-1 text-xl font-semibold">{actionTitle(generation.type)}</h3>
+          <p className="mt-2 text-sm leading-6 text-[#667085]">
+            Erzeugt aus deinen lokalen Notizen. Die Ausgabe kann exportiert, als Karteikarten gelernt oder als Quiz trainiert werden.
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -205,6 +311,11 @@ function GenerationResult({ generation }: { generation: StudyGeneration }) {
   return <p className="leading-7 text-[#344054]">{String(result)}</p>;
 }
 
+function actionTitle(action: StudyAction): string {
+  const label = actions.find((item) => item.id === action)?.label;
+  return label ?? "Lernmaterial";
+}
+
 function CardGrid({ cards }: { cards: StudyCard[] }) {
   return (
     <div className="grid gap-3 md:grid-cols-2">
@@ -238,9 +349,9 @@ function QuizList({ questions }: { questions: QuizQuestion[] }) {
 
 function Block({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section>
+    <section className="rounded-lg border border-[#dfe6df] bg-[#fbfcfa] p-4">
       <h3 className="mb-2 text-sm font-semibold text-[#2f6f73]">{title}</h3>
-      <div className="leading-7 text-[#344054]">{children}</div>
+      <div className="text-sm leading-7 text-[#344054]">{children}</div>
     </section>
   );
 }

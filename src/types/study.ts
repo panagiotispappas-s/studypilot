@@ -14,7 +14,9 @@ export type StudyAction =
   | "examPrep"
   | "explanation"
   | "terms"
-  | "questions";
+  | "questions"
+  | "examples"
+  | "mnemonics";
 
 export interface Timestamped {
   createdAt: string;

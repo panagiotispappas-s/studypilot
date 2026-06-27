@@ -5,6 +5,7 @@ import { CheckCircle2, RotateCcw, Sparkles, Trash2, XCircle } from "lucide-react
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { createFlashcard } from "@/lib/db/flashcards";
 import { deleteQuizQuestion } from "@/lib/db/quiz";
 import { useStudyData } from "@/lib/db/useStudyData";
 
@@ -12,6 +13,7 @@ export function QuizView() {
   const { folders, notebooks, quizQuestions, refresh } = useStudyData();
   const [folderFilter, setFolderFilter] = useState("");
   const [notebookFilter, setNotebookFilter] = useState("");
+  const [difficultyFilter, setDifficultyFilter] = useState("");
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [started, setStarted] = useState(false);
   const [index, setIndex] = useState(0);
@@ -21,9 +23,10 @@ export function QuizView() {
       quizQuestions.filter((question) => {
         if (folderFilter && question.folderId !== folderFilter) return false;
         if (notebookFilter && question.notebookId !== notebookFilter) return false;
+        if (difficultyFilter && question.difficulty !== difficultyFilter) return false;
         return true;
       }),
-    [folderFilter, notebookFilter, quizQuestions],
+    [difficultyFilter, folderFilter, notebookFilter, quizQuestions],
   );
 
   const current = filtered[index];
@@ -32,6 +35,7 @@ export function QuizView() {
   const finished = filtered.length > 0 && index >= filtered.length;
   const selected = current ? answers[current.id] : undefined;
   const progress = filtered.length > 0 ? ((Math.min(index + 1, filtered.length)) / filtered.length) * 100 : 0;
+  const wrongQuestions = answered.filter((question) => answers[question.id] !== question.correctAnswer);
 
   function restart() {
     setAnswers({});
@@ -46,6 +50,16 @@ export function QuizView() {
         <div className="mb-5 flex flex-wrap items-end gap-3">
           <Filter label="Ordner" value={folderFilter} onChange={(value) => { setFolderFilter(value); setStarted(false); setIndex(0); }} options={folders.map((folder) => [folder.id, folder.name])} />
           <Filter label="Notizbuch" value={notebookFilter} onChange={(value) => { setNotebookFilter(value); setStarted(false); setIndex(0); }} options={notebooks.map((notebook) => [notebook.id, notebook.title])} />
+          <Filter
+            label="Schwierigkeit"
+            value={difficultyFilter}
+            onChange={(value) => { setDifficultyFilter(value); setStarted(false); setIndex(0); }}
+            options={[
+              ["easy", "Leicht"],
+              ["medium", "Mittel"],
+              ["hard", "Schwer"],
+            ]}
+          />
         </div>
         {filtered.length === 0 ? (
           <EmptyState title="Noch keine Quizfragen." description="Erzeuge ein Quiz aus deinen Lerninhalten." />
@@ -65,8 +79,41 @@ export function QuizView() {
             <p className="mt-2 text-sm text-[#667085]">
               {correct === filtered.length ? "Sehr stark. Wiederhole die Karten später noch einmal." : "Wiederhole die Fragen, bei denen du unsicher warst."}
             </p>
+            {wrongQuestions.length > 0 ? (
+              <div className="mt-6 rounded-lg bg-[#fff8f5] p-4 text-left">
+                <p className="text-sm font-semibold text-[#b54747]">Schwächenanalyse</p>
+                <ul className="mt-2 space-y-2 text-sm text-[#475467]">
+                  {wrongQuestions.slice(0, 5).map((question) => (
+                    <li key={question.id}>• {question.question}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <div className="mt-6 flex justify-center gap-2">
               <Button onClick={restart}><RotateCcw size={16} /> Erneut starten</Button>
+              {wrongQuestions.length > 0 ? (
+                <Button
+                  variant="secondary"
+                  onClick={async () => {
+                    await Promise.all(
+                      wrongQuestions.map((question) =>
+                        createFlashcard({
+                          front: question.question,
+                          back: `${question.correctAnswer}\n\n${question.explanation}`,
+                          folderId: question.folderId,
+                          notebookId: question.notebookId,
+                          pageId: question.pageId,
+                          difficulty: question.difficulty,
+                          sourceText: question.explanation,
+                        }),
+                      ),
+                    );
+                    restart();
+                  }}
+                >
+                  Fehler als Karten speichern
+                </Button>
+              ) : null}
             </div>
           </section>
         ) : current ? (

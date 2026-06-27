@@ -28,6 +28,7 @@ import {
   LayoutTemplate,
   Maximize2,
   MessageSquare,
+  Minimize2,
   MousePointer2,
   PenLine,
   Plus,
@@ -150,6 +151,7 @@ export function NotebookEditor({ notebookId }: { notebookId: string }) {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("properties");
   const [templateOpen, setTemplateOpen] = useState(false);
   const [focusElementId, setFocusElementId] = useState<string | null>(null);
+  const [focusMode, setFocusMode] = useState(false);
   const pageRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
@@ -470,6 +472,12 @@ export function NotebookEditor({ notebookId }: { notebookId: string }) {
     await saveComment(next);
   }
 
+  async function toggleCommentResolved(comment: StudyComment) {
+    const next = { ...comment, resolved: !comment.resolved, updatedAt: nowIso() };
+    setComments((current) => current.map((item) => (item.id === comment.id ? next : item)));
+    await saveComment(next);
+  }
+
   async function removeComment(id: string) {
     await deleteComment(id);
     setComments((current) => current.filter((comment) => comment.id !== id));
@@ -517,6 +525,10 @@ export function NotebookEditor({ notebookId }: { notebookId: string }) {
               <Save size={16} />
               JSON
             </Button>
+            <Button variant="secondary" onClick={() => setFocusMode((current) => !current)}>
+              {focusMode ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              {focusMode ? "Normal" : "Fokus"}
+            </Button>
             <label className="hidden items-center gap-2 rounded-md border border-[#d9ded7] bg-white px-3 py-2 text-sm font-medium text-[#334155] lg:flex">
               <ZoomIn size={16} />
               <input
@@ -558,8 +570,8 @@ export function NotebookEditor({ notebookId }: { notebookId: string }) {
         />
       </header>
 
-      <div className="grid flex-1 grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)_320px]">
-        <aside className="border-b border-[#363d47] bg-[#20252d] p-3 text-white lg:border-b-0 lg:border-r">
+      <div className={cx("grid flex-1 grid-cols-1", focusMode ? "lg:grid-cols-1" : "lg:grid-cols-[220px_minmax(0,1fr)_320px]")}>
+        <aside className={cx("border-b border-[#363d47] bg-[#20252d] p-3 text-white lg:border-b-0 lg:border-r", focusMode && "hidden")}>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-[#f8fafc]">Seiten</h2>
             <Button className="h-9 w-9 p-0" onClick={addPage} aria-label="Seite hinzufügen">
@@ -651,7 +663,7 @@ export function NotebookEditor({ notebookId }: { notebookId: string }) {
           ) : null}
         </main>
 
-        <aside className="border-t border-[#dfe6df] bg-[#fbfcfa] lg:border-l lg:border-t-0">
+        <aside className={cx("border-t border-[#dfe6df] bg-[#fbfcfa] lg:border-l lg:border-t-0", focusMode && "hidden")}>
           <div className="grid grid-cols-3 border-b border-[#dfe6df]">
             <PanelTab active={inspectorTab === "properties"} onClick={() => setInspectorTab("properties")}>Eigenschaften</PanelTab>
             <PanelTab active={inspectorTab === "comments"} onClick={() => setInspectorTab("comments")}>Kommentare</PanelTab>
@@ -676,6 +688,7 @@ export function NotebookEditor({ notebookId }: { notebookId: string }) {
                 selectedElement={selectedElement}
                 onAdd={() => addComment()}
                 onChange={updateComment}
+                onToggleResolved={toggleCommentResolved}
                 onDelete={removeComment}
               />
             ) : null}
@@ -1281,12 +1294,14 @@ function CommentsPanel({
   selectedElement,
   onAdd,
   onChange,
+  onToggleResolved,
   onDelete,
 }: {
   comments: StudyComment[];
   selectedElement: PageElement | null;
   onAdd: () => Promise<void>;
   onChange: (comment: StudyComment, text: string) => Promise<void>;
+  onToggleResolved: (comment: StudyComment) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }) {
   return (
@@ -1306,7 +1321,7 @@ function CommentsPanel({
       ) : (
         <div className="mt-4 space-y-3">
           {comments.map((comment) => (
-            <article key={comment.id} className="rounded-md border border-[#dfe6df] bg-white p-3">
+            <article key={comment.id} className={cx("rounded-md border bg-white p-3", comment.resolved ? "border-[#d8e9e4] opacity-75" : "border-[#dfe6df]")}>
               <textarea
                 value={comment.text}
                 onChange={(event) => void onChange(comment, event.target.value)}
@@ -1314,6 +1329,9 @@ function CommentsPanel({
                 className="min-h-20 w-full resize-y rounded-md border border-[#d9ded7] bg-white p-2 text-sm outline-none focus:border-[#2f6f73]"
               />
               <div className="mt-2 flex items-center justify-between gap-2 text-xs text-[#667085]">
+                <button className="font-medium text-[#2f6f73]" onClick={() => void onToggleResolved(comment)}>
+                  {comment.resolved ? "Wieder öffnen" : "Erledigt markieren"}
+                </button>
                 <span>{comment.elementId ? "Elementbezug" : "Seitenkommentar"}</span>
                 <button className="font-medium text-[#b54747]" onClick={() => onDelete(comment.id)}>Löschen</button>
               </div>

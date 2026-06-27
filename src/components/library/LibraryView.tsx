@@ -4,13 +4,22 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
+  BarChart3,
+  BookOpenCheck,
+  CalendarRange,
+  Clock3,
   FolderPlus,
+  Grid3X3,
+  Layers3,
+  List,
   MoreHorizontal,
   NotebookTabs,
   Pencil,
   Plus,
   Search,
+  SortAsc,
   Star,
+  Trophy,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -25,6 +34,8 @@ import { cx } from "@/lib/utils/format";
 import type { Notebook, StudyFolder } from "@/types/study";
 
 const folderColors = ["#2f6f73", "#4f6f52", "#7c5b38", "#6b5b95", "#a14f4f", "#2d5f89"];
+type LibraryViewMode = "grid" | "list";
+type LibrarySortMode = "updated" | "title" | "pages";
 
 export function LibraryView() {
   const searchParams = useSearchParams();
@@ -34,16 +45,44 @@ export function LibraryView() {
   const [folderModal, setFolderModal] = useState<StudyFolder | "new" | null>(null);
   const [notebookModal, setNotebookModal] = useState<Notebook | "new" | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<StudyFolder | Notebook | null>(null);
+  const [viewMode, setViewMode] = useState<LibraryViewMode>("grid");
+  const [sortMode, setSortMode] = useState<LibrarySortMode>("updated");
+  const [referenceTime] = useState(() => Date.now());
 
   const selectedFolder = folders.find((folder) => folder.id === selectedFolderId) ?? folders[0];
-  const visibleNotebooks = notebooks.filter((notebook) =>
-    selectedFolder ? notebook.folderId === selectedFolder.id : true,
-  );
+  const visibleNotebooks = useMemo(() => {
+    const filtered = notebooks.filter((notebook) => (selectedFolder ? notebook.folderId === selectedFolder.id : true));
+    return [...filtered].sort((left, right) => {
+      if (sortMode === "title") return left.title.localeCompare(right.title, "de");
+      if (sortMode === "pages") {
+        const leftPages = pages.filter((page) => page.notebookId === left.id).length;
+        const rightPages = pages.filter((page) => page.notebookId === right.id).length;
+        return rightPages - leftPages || left.title.localeCompare(right.title, "de");
+      }
+      return (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "");
+    });
+  }, [notebooks, pages, selectedFolder, sortMode]);
   const recentNotebooks = [...notebooks]
     .sort((left, right) => (right.lastOpenedAt ?? "").localeCompare(left.lastOpenedAt ?? ""))
     .slice(0, 5);
   const favorites = notebooks.filter((notebook) => notebook.favorite);
   const results = useMemo(() => search(query), [query, search]);
+  const metrics = useMemo(() => {
+    const elementCount = pages.reduce((sum, page) => sum + page.elements.filter((element) => element.type !== "comment").length, 0);
+    const textCount = pages.reduce((sum, page) => sum + page.elements.filter((element) => element.type === "text" || element.type === "table").length, 0);
+    const activeThisWeek = notebooks.filter((notebook) => {
+      const updated = new Date(notebook.updatedAt).getTime();
+      return Number.isFinite(updated) && referenceTime - updated < 7 * 24 * 60 * 60 * 1000;
+    }).length;
+    return {
+      folders: folders.length,
+      notebooks: notebooks.length,
+      pages: pages.length,
+      elementCount,
+      textCount,
+      activeThisWeek,
+    };
+  }, [folders.length, notebooks, pages, referenceTime]);
 
   async function handleDelete() {
     if (!deleteTarget) return;
@@ -97,6 +136,13 @@ export function LibraryView() {
         </div>
       </header>
 
+      <LibraryCockpit
+        metrics={metrics}
+        recentNotebooks={recentNotebooks}
+        favorites={favorites}
+        pageCountForNotebook={(notebookId) => pages.filter((page) => page.notebookId === notebookId).length}
+      />
+
       <div className="grid gap-6 px-5 py-6 lg:grid-cols-[280px_minmax(0,1fr)] lg:px-8">
         <section className="space-y-3">
           <h2 className="text-sm font-semibold text-[#475467]">Ordner</h2>
@@ -138,7 +184,23 @@ export function LibraryView() {
 
         <section className="min-w-0 space-y-6">
           <Panel title={selectedFolder ? selectedFolder.name : "Ordner-Ansicht"} action={selectedFolder ? (
-            <div className="flex gap-1">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <label className="flex h-9 items-center gap-2 rounded-md border border-[#d9ded7] bg-white px-2 text-xs font-medium text-[#475467]">
+                <SortAsc size={14} />
+                <select value={sortMode} onChange={(event) => setSortMode(event.target.value as LibrarySortMode)} className="bg-transparent outline-none">
+                  <option value="updated">Aktualisiert</option>
+                  <option value="title">Titel</option>
+                  <option value="pages">Seiten</option>
+                </select>
+              </label>
+              <div className="flex rounded-md border border-[#d9ded7] bg-white p-0.5">
+                <button className={cx("flex h-8 w-8 items-center justify-center rounded", viewMode === "grid" ? "bg-[#e8f3f1] text-[#2f6f73]" : "text-[#667085]")} onClick={() => setViewMode("grid")} aria-label="Rasteransicht">
+                  <Grid3X3 size={15} />
+                </button>
+                <button className={cx("flex h-8 w-8 items-center justify-center rounded", viewMode === "list" ? "bg-[#e8f3f1] text-[#2f6f73]" : "text-[#667085]")} onClick={() => setViewMode("list")} aria-label="Listenansicht">
+                  <List size={16} />
+                </button>
+              </div>
               <Button variant="ghost" className="h-9 w-9 p-0" onClick={() => setFolderModal(selectedFolder)} aria-label="Ordner bearbeiten">
                 <Pencil size={16} />
               </Button>
@@ -154,19 +216,33 @@ export function LibraryView() {
                 action={<Button onClick={() => setNotebookModal("new")} disabled={!selectedFolder}>Notizbuch erstellen</Button>}
               />
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div className={viewMode === "grid" ? "grid gap-3 sm:grid-cols-2 xl:grid-cols-3" : "space-y-3"}>
                 {visibleNotebooks.map((notebook) => (
-                  <NotebookCard
-                    key={notebook.id}
-                    notebook={notebook}
-                    pageCount={pages.filter((page) => page.notebookId === notebook.id).length}
-                    onEdit={() => setNotebookModal(notebook)}
-                    onDelete={() => setDeleteTarget(notebook)}
-                    onToggleFavorite={async () => {
-                      await updateNotebook(notebook.id, { favorite: !notebook.favorite });
-                      await refresh();
-                    }}
-                  />
+                  viewMode === "grid" ? (
+                    <NotebookCard
+                      key={notebook.id}
+                      notebook={notebook}
+                      pageCount={pages.filter((page) => page.notebookId === notebook.id).length}
+                      onEdit={() => setNotebookModal(notebook)}
+                      onDelete={() => setDeleteTarget(notebook)}
+                      onToggleFavorite={async () => {
+                        await updateNotebook(notebook.id, { favorite: !notebook.favorite });
+                        await refresh();
+                      }}
+                    />
+                  ) : (
+                    <NotebookRow
+                      key={notebook.id}
+                      notebook={notebook}
+                      pageCount={pages.filter((page) => page.notebookId === notebook.id).length}
+                      onEdit={() => setNotebookModal(notebook)}
+                      onDelete={() => setDeleteTarget(notebook)}
+                      onToggleFavorite={async () => {
+                        await updateNotebook(notebook.id, { favorite: !notebook.favorite });
+                        await refresh();
+                      }}
+                    />
+                  )
                 ))}
               </div>
             )}
@@ -231,6 +307,86 @@ export function LibraryView() {
   );
 }
 
+function LibraryCockpit({
+  metrics,
+  recentNotebooks,
+  favorites,
+  pageCountForNotebook,
+}: {
+  metrics: {
+    folders: number;
+    notebooks: number;
+    pages: number;
+    elementCount: number;
+    textCount: number;
+    activeThisWeek: number;
+  };
+  recentNotebooks: Notebook[];
+  favorites: Notebook[];
+  pageCountForNotebook: (notebookId: string) => number;
+}) {
+  const focusNotebook = recentNotebooks[0] ?? favorites[0];
+  return (
+    <section className="border-b border-[#dfe6df] bg-[#f9fbf8] px-5 py-5 lg:px-8">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricCard icon={Layers3} label="Fächer" value={metrics.folders} hint={`${metrics.notebooks} Notizbücher`} />
+          <MetricCard icon={BookOpenCheck} label="Seiten" value={metrics.pages} hint={`${metrics.elementCount} Elemente`} />
+          <MetricCard icon={BarChart3} label="Auswertbar" value={metrics.textCount} hint="Text- und Tabellenbereiche" />
+          <MetricCard icon={Trophy} label="Aktiv" value={metrics.activeThisWeek} hint="Notizbücher diese Woche" />
+        </div>
+        <div className="rounded-lg border border-[#dfe6df] bg-white p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#e8f3f1] text-[#2f6f73]">
+              <CalendarRange size={19} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">Nächster sinnvoller Schritt</p>
+              {focusNotebook ? (
+                <>
+                  <p className="mt-1 text-sm leading-6 text-[#667085]">
+                    Öffne „{focusNotebook.title}“ und verwandle die letzten Notizen in Karteikarten oder ein Quiz.
+                  </p>
+                  <Link href={`/notebook/${focusNotebook.id}`} className="mt-3 inline-flex text-sm font-medium text-[#2f6f73]">
+                    Weiterarbeiten · {pageCountForNotebook(focusNotebook.id)} Seiten
+                  </Link>
+                </>
+              ) : (
+                <p className="mt-1 text-sm leading-6 text-[#667085]">Lege ein Fach und ein Notizbuch an, um dein Lernsystem aufzubauen.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MetricCard({
+  icon: Icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: typeof Layers3;
+  label: string;
+  value: number;
+  hint: string;
+}) {
+  return (
+    <article className="rounded-lg border border-[#dfe6df] bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex h-9 w-9 items-center justify-center rounded-md bg-[#eef3ee] text-[#2f6f73]">
+          <Icon size={18} />
+        </span>
+        <span className="text-2xl font-semibold">{value}</span>
+      </div>
+      <p className="mt-3 text-sm font-semibold">{label}</p>
+      <p className="mt-1 text-xs text-[#667085]">{hint}</p>
+    </article>
+  );
+}
+
 function Panel({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="rounded-lg border border-[#dfe6df] bg-white p-5">
@@ -240,6 +396,48 @@ function Panel({ title, action, children }: { title: string; action?: ReactNode;
       </div>
       {children}
     </section>
+  );
+}
+
+function NotebookRow({
+  notebook,
+  pageCount,
+  onEdit,
+  onDelete,
+  onToggleFavorite,
+}: {
+  notebook: Notebook;
+  pageCount: number;
+  onEdit: () => void;
+  onDelete: () => void;
+  onToggleFavorite: () => void;
+}) {
+  return (
+    <article className="flex items-center gap-3 rounded-lg border border-[#dfe6df] bg-[#fbfcfa] p-3">
+      <Link href={`/notebook/${notebook.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md text-white shadow-sm" style={{ background: notebook.coverColor ?? "#2f6f73" }}>
+          <NotebookTabs size={20} />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate font-semibold">{notebook.title}</span>
+          <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[#667085]">
+            <span>{pageCount} Seiten</span>
+            <span className="inline-flex items-center gap-1"><Clock3 size={12} /> {formatDate(notebook.updatedAt)}</span>
+          </span>
+        </span>
+      </Link>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button variant="ghost" className="h-8 w-8 p-0" onClick={onToggleFavorite} aria-label="Favorit setzen">
+          <Star size={16} className={notebook.favorite ? "fill-[#d6a642] text-[#d6a642]" : ""} />
+        </Button>
+        <Button variant="ghost" className="h-8 w-8 p-0" onClick={onEdit} aria-label="Notizbuch bearbeiten">
+          <MoreHorizontal size={16} />
+        </Button>
+        <Button variant="ghost" className="h-8 w-8 p-0 text-[#b54747]" onClick={onDelete} aria-label="Notizbuch löschen">
+          <Trash2 size={16} />
+        </Button>
+      </div>
+    </article>
   );
 }
 

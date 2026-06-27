@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
-import { Check, Download, Pencil, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
+import { Check, Download, Pencil, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
-import { deleteFlashcard, updateFlashcard } from "@/lib/db/flashcards";
+import { createFlashcard, deleteFlashcard, updateFlashcard } from "@/lib/db/flashcards";
 import { useStudyData } from "@/lib/db/useStudyData";
 import { nowIso } from "@/lib/utils/date";
 import { downloadText } from "@/lib/utils/format";
@@ -17,6 +17,8 @@ export function FlashcardsView() {
   const [folderFilter, setFolderFilter] = useState("");
   const [notebookFilter, setNotebookFilter] = useState("");
   const [editing, setEditing] = useState<StudyCard | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [deckMode, setDeckMode] = useState<"all" | "weak" | "new">("all");
   const [sessionIndex, setSessionIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [sessionStats, setSessionStats] = useState({ known: 0, unsure: 0, unknown: 0 });
@@ -26,9 +28,15 @@ export function FlashcardsView() {
       flashcards.filter((card) => {
         if (folderFilter && card.folderId !== folderFilter) return false;
         if (notebookFilter && card.notebookId !== notebookFilter) return false;
+        if (deckMode === "weak" && card.unknownCount <= card.knownCount) return false;
+        if (deckMode === "new" && card.knownCount + card.unknownCount > 0) return false;
         return true;
+      }).sort((left, right) => {
+        if (deckMode === "weak") return (right.unknownCount - right.knownCount) - (left.unknownCount - left.knownCount);
+        if (deckMode === "new") return left.createdAt.localeCompare(right.createdAt);
+        return (right.lastReviewedAt ?? "").localeCompare(left.lastReviewedAt ?? "");
       }),
-    [flashcards, folderFilter, notebookFilter],
+    [deckMode, flashcards, folderFilter, notebookFilter],
   );
 
   const currentCard = filtered[sessionIndex] ?? filtered[0];
@@ -69,13 +77,34 @@ export function FlashcardsView() {
       <PageHeader
         title="Karteikarten"
         subtitle="Aktives Lernen mit Kartenstapel, Flip und Fortschritt."
-        actions={filtered.length > 0 ? <Button variant="secondary" onClick={exportCsv}><Download size={16} /> CSV</Button> : null}
+        actions={(
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => setCreating(true)}><Plus size={16} /> Karte erstellen</Button>
+            {filtered.length > 0 ? <Button variant="secondary" onClick={exportCsv}><Download size={16} /> CSV</Button> : null}
+          </div>
+        )}
       />
       <div className="px-5 py-6 lg:px-8">
         <div className="mb-5 flex flex-wrap gap-3">
           <Filter label="Ordner" value={folderFilter} onChange={(value) => { setFolderFilter(value); restartSession(); }} options={folders.map((folder) => [folder.id, folder.name])} />
           <Filter label="Notizbuch" value={notebookFilter} onChange={(value) => { setNotebookFilter(value); restartSession(); }} options={notebooks.map((notebook) => [notebook.id, notebook.title])} />
+          <Filter
+            label="Stapel"
+            value={deckMode}
+            onChange={(value) => { setDeckMode(value as "all" | "weak" | "new"); restartSession(); }}
+            options={[
+              ["weak", "Schwächen"],
+              ["new", "Neu"],
+            ]}
+          />
         </div>
+        {flashcards.length > 0 ? (
+          <div className="mb-6 grid gap-3 md:grid-cols-3">
+            <SessionStat label="Gesamt" value={flashcards.length} hint="Karten im System" />
+            <SessionStat label="Schwächen" value={flashcards.filter((card) => card.unknownCount > card.knownCount).length} hint="Priorität für Wiederholung" />
+            <SessionStat label="Neu" value={flashcards.filter((card) => card.knownCount + card.unknownCount === 0).length} hint="Noch nicht gelernt" />
+          </div>
+        ) : null}
         {filtered.length === 0 ? (
           <EmptyState title="Noch keine Karteikarten." description="Erstelle Karteikarten aus deinen Notizen." />
         ) : finished ? (
@@ -135,7 +164,27 @@ export function FlashcardsView() {
           }}
         />
       ) : null}
+      {creating ? (
+        <CreateCardModal
+          onClose={() => setCreating(false)}
+          onSaved={async () => {
+            setCreating(false);
+            await refresh();
+            restartSession();
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function SessionStat({ label, value, hint }: { label: string; value: number; hint: string }) {
+  return (
+    <article className="rounded-lg border border-[#dfe6df] bg-white p-4">
+      <p className="text-2xl font-semibold">{value}</p>
+      <p className="mt-1 text-sm font-medium">{label}</p>
+      <p className="mt-1 text-xs text-[#667085]">{hint}</p>
+    </article>
   );
 }
 
@@ -191,6 +240,38 @@ function EditCardModal({ card, onClose, onSaved }: { card: StudyCard; onClose: (
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Abbrechen</Button>
           <Button type="submit"><RotateCcw size={16} /> Speichern</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function CreateCardModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => Promise<void> }) {
+  const [front, setFront] = useState("");
+  const [back, setBack] = useState("");
+  const [difficulty, setDifficulty] = useState<StudyCard["difficulty"]>("medium");
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!front.trim() || !back.trim()) return;
+    await createFlashcard({ front, back, difficulty });
+    await onSaved();
+  }
+  return (
+    <Modal title="Karteikarte erstellen" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <TextArea label="Vorderseite" value={front} onChange={setFront} />
+        <TextArea label="Rückseite" value={back} onChange={setBack} />
+        <label className="block text-sm font-medium">
+          Schwierigkeit
+          <select value={difficulty} onChange={(event) => setDifficulty(event.target.value as StudyCard["difficulty"])} className="mt-2 h-10 w-full rounded-md border border-[#d9ded7] bg-white px-3">
+            <option value="easy">Leicht</option>
+            <option value="medium">Mittel</option>
+            <option value="hard">Schwer</option>
+          </select>
+        </label>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>Abbrechen</Button>
+          <Button type="submit"><Plus size={16} /> Erstellen</Button>
         </div>
       </form>
     </Modal>

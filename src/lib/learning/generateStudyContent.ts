@@ -181,6 +181,22 @@ function buildResult(
     return keywords.slice(0, 16).map(capitalize);
   }
 
+  if (action === "examples") {
+    const explicitExamples = sentences.filter((sentence) => /zum beispiel|beispiel|etwa|wenn|anwendung|fall/i.test(sentence));
+    return [
+      ...explicitExamples.slice(0, 5),
+      ...keywords.slice(0, 6).map((keyword) => `Beispielaufgabe zu ${keyword}: Beschreibe eine Situation, in der ${keyword} angewendet wird, und löse sie Schritt für Schritt.`),
+    ].slice(0, 8);
+  }
+
+  if (action === "mnemonics") {
+    return keywords.slice(0, 10).map((keyword, index) => {
+      const hook = keyword.length > 7 ? keyword.slice(0, 4).toUpperCase() : capitalize(keyword);
+      const sentence = findSentenceForKeyword(sentences, keyword);
+      return `${hook}: Merke dir ${keyword} über ${sentence ? `den Zusammenhang „${sentence.slice(0, 110)}“` : "eine eigene kurze Bildgeschichte"}. Wiederhole die Eselsbrücke laut und schreibe ein Mini-Beispiel dazu. ${index < 3 ? "Priorität hoch." : "Priorität normal."}`;
+    });
+  }
+
   return keywords.slice(0, 8).map((keyword) => `Welche Rolle spielt ${keyword} im Thema?`);
 }
 
@@ -209,8 +225,13 @@ function extractKeywords(text: string): string[] {
     "mit",
     "oder",
     "und",
+    "werden",
+    "wird",
     "von",
+    "warum",
+    "wenn",
     "wie",
+    "wird",
     "zu",
     "zur",
     "zum",
